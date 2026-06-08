@@ -1,134 +1,99 @@
-# StellarX Workshop Starter
+# Tricycle Franchise Rights Ledger
 
-A ready-to-run scaffold for the **StellarX PH workshop @ PUP QC**. It gives you a
-working Stellar app on **testnet** so you can spend the workshop bending it toward
-your own idea instead of fighting setup.
+One-line description
+--------------------
+A Soroban-backed ledger where LGU-issued tricycle franchise rights are recorded on-chain and transfers finalize only after LGU approval.
 
-It covers **both** workshop tracks:
+## Problem
+Local governments and tricycle operators lack a transparent, tamper-evident record for route franchise rights. Ownership transfers are often informal and disputed, which harms operators and creates enforcement problems for LGUs. This project provides an auditable on-chain record with an LGU approval workflow for transfers, improving transparency and reducing disputes — especially relevant in Philippine municipalities where tricycle franchising is common.
 
-- **Fullstack payments** — a Next.js app: connect Freighter → fund via Friendbot →
-  view XLM/USDC balances → send a payment → confirm on-chain.
-- **Soroban smart contract** — a small Rust contract (a *Savings Goal* tracker)
-  you build, test, deploy with the Stellar CLI, and call from the same frontend.
+## How It Works
+- An LGU admin deploys and initializes the Soroban contract with an admin address.
+- The admin issues a franchise for a `route_id` to an `owner` address on-chain using `issue_franchise(route_id, owner)`.
+- If an owner wants to transfer, they call `request_transfer(route_id, to)` which records a `pending` transfer (owner must sign).
+- The LGU admin reviews and finalizes the transfer by calling `approve_transfer(route_id)` (admin must sign). Ownership updates on-chain only after approval.
+- The frontend (Next.js) simulates Soroban transactions via the Soroban RPC, assembles them, and uses Freighter for signing.
 
-```
-.
-├── web/                      # Next.js 16 + TypeScript + Tailwind frontend
-├── contracts/savings-goal/   # Rust Soroban contract (init / contribute / get_state)
-├── scripts/                  # deploy.ps1 (Windows) / deploy.sh
-├── Cargo.toml                # Rust workspace
-└── CLAUDE.md                 # stack notes + Stellar gotchas (read this!)
-```
+## How It Uses Stellar
+- Soroban contract (`contracts/savings-goal`) stores `FranchiseInfo` per `route_id`, enforces authorization via `Address::require_auth()`, and exposes: `init(admin)`, `issue_franchise(route_id, owner)`, `request_transfer(route_id, to)`, `approve_transfer(route_id)`, and `get_franchise(route_id)`.
+- Frontend uses `@stellar/stellar-sdk` RPC methods (`server.simulateTransaction`, `rpc.assembleTransaction`) to build and simulate Soroban transactions before signing.
+- Freighter (dynamic import) is used to sign transactions in the browser.
+- Horizon / Stellar SDK are used for balances and account management where needed (e.g., funding test accounts with Friendbot).
 
-## Prerequisites
+Why Stellar: Soroban's on-chain contract model provides deterministic, auditable state and native transaction handling suited for this approval workflow. Using Stellar testnet and Freighter keeps user flows simple for demos.
 
-From the [workshop setup checklist](https://stellar-pup-qc-may-2026-checklist.vercel.app/):
+## Track
+Track 5 Social Impact
 
-- **Node.js 20+** and **npm** — for the frontend.
-- **Freighter** browser extension — create a wallet, switch it to **Test Net**.
-- For the contract track: **Rust**, the `wasm32v1-none` target, and the **Stellar CLI**.
+## Tech Stack
+- Framework: Next.js 16 + React 19 + TypeScript
+- Soroban contract: Rust with `soroban-sdk` (contract in `contracts/savings-goal`)
+- Stellar SDK: `@stellar/stellar-sdk` v15.x
+- Frontend styling: Tailwind CSS
+- Network: testnet
 
-You can run the **payments demo with just Node + Freighter** — Rust/CLI are only
-needed to deploy the Soroban contract.
+## Setup & Run
+Follow these steps to run the app locally and verify contract flows.
 
-### Install the contract toolchain (Windows)
+1. Clone the repo and install dependencies
 
-Install Rust and the Stellar CLI:
+```bash
+git clone <your-repo-url>
+cd "Project3 - Tricycle Franchise Token"
 
-```powershell
-winget install --id Rustlang.Rustup -e --accept-source-agreements --accept-package-agreements
-winget install --id Stellar.StellarCLI -e --accept-source-agreements --accept-package-agreements
-```
-
-Then **open a new terminal** (so `cargo`/`stellar` land on PATH) and give Rust a
-working linker — pick one:
-
-**Easiest — GNU toolchain** (no admin, no large download):
-
-```powershell
-rustup default stable-x86_64-pc-windows-gnu
-rustup target add wasm32v1-none
-```
-
-**Or MSVC** (matches Stellar's docs): install the **Visual C++ Build Tools** (the
-"Desktop development with C++" workload), then:
-
-```powershell
-rustup target add wasm32v1-none
-```
-
-> If `cargo` fails with *"linker `link.exe` not found"*, you skipped the step
-> above — use the GNU toolchain or install the Build Tools.
-
-On macOS/Linux: install Rust from <https://rustup.rs>, run
-`rustup target add wasm32v1-none`, and install the Stellar CLI
-(`brew install stellar-cli`).
-
-## 1. Run the frontend (the part that demos immediately)
-
-```powershell
+# frontend
 cd web
-npm install        # already run if you scaffolded via this repo
-npm run dev
+npm install
 ```
 
-Open <http://localhost:3000>, then:
+2. Environment variables (create `web/.env.local` or set in your shell)
 
-1. **Connect Freighter** (approve in the extension; make sure it's on Test Net).
-2. **Fund with Friendbot** — your XLM balance jumps to ~10,000.
-3. **Send a payment** to another *existing, funded* testnet account
-   (create one at <https://laboratory.stellar.org/#account-creator?network=test>).
-4. Watch the status go Building → Signing → Submitting → Confirming → Success,
-   then open the **Stellar Expert** link to see it on-chain.
+```
+NEXT_PUBLIC_SOROBAN_RPC=https://soroban-testnet.stellar.org
+# NEXT_PUBLIC_CONTRACT_ID will be written by the deploy script after deployment
+# (or paste a deployed contract ID here if you already have one)
+```
 
-`web/.env.local` is pre-filled with testnet config. `NEXT_PUBLIC_CONTRACT_ID` is
-left empty — the Savings Goal panel shows deploy instructions until you set it.
+3. Run the frontend
 
-## 2. Build, test & deploy the Soroban contract
+```bash
+cd web
+npm run dev
+# Open http://localhost:3000
+```
+
+4. Run contract tests
 
 ```powershell
-# from the repo root
-cargo test                 # runs the contract unit tests (no network needed)
-
-# deploy to testnet + auto-wire the contract ID into web/.env.local
-.\scripts\deploy.ps1       # macOS/Linux:  ./scripts/deploy.sh
+cd contracts/savings-goal
+cargo test
 ```
 
-The deploy script will: create+fund a testnet identity (if needed), run
-`stellar contract build`, deploy, initialise the goal (target `1000`), and write
-`NEXT_PUBLIC_CONTRACT_ID` into `web/.env.local`. **Restart `npm run dev`** and the
-**Savings Goal** panel goes live: it reads on-chain progress and lets a connected
-wallet `contribute` (a real signed Soroban transaction).
+5. Deploy the contract (requires Stellar CLI and wasm target)
 
-### The contract (`contracts/savings-goal/src/lib.rs`)
+```powershell
+# from the repo root (Windows PowerShell)
+.\scripts\deploy.ps1    # this builds, deploys and writes NEXT_PUBLIC_CONTRACT_ID into web/.env.local
 
-| Function | Purpose |
-|---|---|
-| `init(target: i128)` | Set the savings target (once). |
-| `contribute(amount: i128) -> i128` | Add to the saved total; returns the new total. |
-| `get_state() -> State` | Read `{ saved, target }`. |
+# macOS/Linux
+./scripts/deploy.sh
+```
 
-It uses plain integer state (no token transfers) so it's bulletproof in a live
-demo. To make it move real money, swap `contribute` to call the XLM/USDC SAC
-`transfer` and store per-user contributions — see CLAUDE.md for the SAC addresses.
+After deploy, restart the frontend (`npm run dev`) so the app picks up `NEXT_PUBLIC_CONTRACT_ID`.
 
-## 3. Make it your idea
+## Network Details
+- Network: testnet
+- RPC URL: https://soroban-testnet.stellar.org
+- Contract IDs: (will be listed here after deployment)
+- Asset issuers: N/A (no fiat/stable asset issuer used in the demo)
 
-This is your *starting point*, not the answer. Pick an idea + track from the
-workshop's 300-ideas list (Philippines remittance / payments / financial
-inclusion themes score well), then reshape the components and the contract.
-Good extension paths: transaction history from Horizon, USDC trustline + send,
-a swap via Soroswap, a price feed via Reflector.
+## Team
+- [Your Full Name] — @[your-github-username]
+- (Optional) [Teammate Name] — @[their-github-username]
 
-For a fully worked example built on this scaffold, see the **Paluwagan** app in
-`..\Stellar-Workshop-PUP-May-2026-EXAMPLE`.
+## License
+MIT
 
-## Troubleshooting
+---
 
-- **Freighter "not detected"** — install it, reload the page, and confirm it's unlocked.
-- **Payment fails `op_no_destination`** — fund the destination account first.
-- **`tx_bad_auth`** — wrong network passphrase; this app uses `Networks.TESTNET`.
-- **Contract panel can't read state** — make sure you deployed *and* ran `init`,
-  and that `NEXT_PUBLIC_CONTRACT_ID` is set, then restart the dev server.
-
-See **CLAUDE.md** for the full list of Stellar gotchas.
+Replace `<your-repo-url>` and the bracketed placeholders with real values before publishing. For deployment and operational guidance, see `scripts/deploy.ps1` and `CLAUDE.md` in the repo.
